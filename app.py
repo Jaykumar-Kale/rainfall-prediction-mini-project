@@ -1,28 +1,44 @@
 import streamlit as st
 import pandas as pd
-import joblib
+from sklearn.linear_model import LinearRegression
 
-# Page configuration
+# Page config
 st.set_page_config(
     page_title="Rainfall Prediction System",
     page_icon="🌧",
     layout="centered"
 )
 
-# Title
 st.title("🌧 Rainfall Prediction System")
 st.caption("Machine Learning based rainfall analysis and prediction")
 
-# Load model and feature columns
-model = joblib.load("model/rainfall_model.pkl")
-feature_columns = joblib.load("model/feature_columns.pkl")
-
 # Load dataset
-df = pd.read_csv("data/rainfall.csv")
+@st.cache_data
+def load_data():
+    df = pd.read_csv("data/rainfall.csv")
+    df.dropna(inplace=True)
+    return df
 
-subdivisions = sorted(df["SUBDIVISION"].unique())
+df = load_data()
+
 months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
           "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+
+subdivisions = sorted(df["SUBDIVISION"].unique())
+
+# Train model once
+@st.cache_resource
+def train_model(data):
+    X = data.drop("ANNUAL", axis=1)
+    y = data["ANNUAL"]
+    X = pd.get_dummies(X, drop_first=True)
+
+    model = LinearRegression()
+    model.fit(X, y)
+
+    return model, X.columns
+
+model, feature_columns = train_model(df)
 
 # Tabs
 tab1, tab2 = st.tabs([
@@ -47,7 +63,6 @@ with tab1:
                 month, min_value=0.0, value=50.0
             )
 
-    # Prepare input
     input_data = {
         "SUBDIVISION": subdivision,
         **monthly_values
@@ -55,8 +70,6 @@ with tab1:
 
     input_df = pd.DataFrame([input_data])
     input_encoded = pd.get_dummies(input_df)
-
-    # Align columns
     input_encoded = input_encoded.reindex(
         columns=feature_columns,
         fill_value=0
@@ -68,33 +81,21 @@ with tab1:
 
 # ================= TAB 2 =================
 with tab2:
-    st.subheader("📊 Monthly Rainfall Insights (Historical Data)")
+    st.subheader("📊 Monthly Rainfall Insights")
 
     colA, colB = st.columns(2)
 
     with colA:
-        selected_sub = st.selectbox(
-            "Select Subdivision",
-            subdivisions,
-            key="monthly_sub"
-        )
+        sub = st.selectbox("Select Subdivision", subdivisions, key="sub")
 
     with colB:
-        selected_month = st.selectbox(
-            "Select Month",
-            months,
-            key="monthly_month"
-        )
+        month = st.selectbox("Select Month", months, key="month")
 
-    filtered = df[df["SUBDIVISION"] == selected_sub]
+    filtered = df[df["SUBDIVISION"] == sub]
 
-    avg_rain = filtered[selected_month].mean()
-    min_rain = filtered[selected_month].min()
-    max_rain = filtered[selected_month].max()
+    st.metric("Average Rainfall (mm)", f"{filtered[month].mean():.2f}")
+    st.metric("Minimum Recorded (mm)", f"{filtered[month].min():.2f}")
+    st.metric("Maximum Recorded (mm)", f"{filtered[month].max():.2f}")
 
-    st.metric("🌦 Average Rainfall (mm)", f"{avg_rain:.2f}")
-    st.metric("⬇ Minimum Recorded (mm)", f"{min_rain:.2f}")
-    st.metric("⬆ Maximum Recorded (mm)", f"{max_rain:.2f}")
-
-    st.markdown("### 📈 Monthly Rainfall Trend (All Months)")
+    st.markdown("### 📈 Monthly Rainfall Trend")
     st.line_chart(filtered[months])
